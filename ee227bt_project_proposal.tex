@@ -1,0 +1,72 @@
+\documentclass[10pt]{article}
+\usepackage{fullpage,url}
+
+\begin{document}
+
+\parindent 0pt
+\parskip 8pt
+
+\begin{center}
+\large\bf EE 227BT Project Proposal: Optimization Problems in Neural Networks \\
+\large\bf \textnormal{Ronghang Hu, Daniel Seita, Jianwei Xiao, Xuaner Zhang} \\
+%\large\bf Email: \textnormal{takeshidanny@gmail.com, huronghang@hotmail.com, zhangxer77@gmail.com,
+%jwxiao@berkeley.edu)}\\
+\end{center}
+
+Neural networks are a machine learning model that have formed the basis of recent breakthroughs in
+computer vision, speech recognition, and reinforcement learning.  Neural networks\footnote{Our
+treatment here will be brief, since we assume that the reader is familiar with the basics of neural
+networks.} consist of multiple layers, each characterized by a function $f_i$ that performs (usually
+nonlinear) transformations on its input. Data are provided via an input layer, and then ``fed
+forward'' through subsequent layers, meaning that one can view neural networks as a composition of
+parametrized feed-forward functions from input $x$ to output $y$:
+\begin{equation}
+f_n(f_{n-1}(\cdots, f_1(x; w_1), \cdots; w_{n-1}); w_n) = y,
+\end{equation}
+where each $f_i(\; \cdot \; ; w_i)$ is a parametrized, usually nonlinear, feed-forward function.
+During training a loss function $L(x, y)$, such as negative log-likelihood, is defined and
+minimized w.r.t the parameters $w_1,\ldots,w_n$.  In general, neural networks are challenging to
+optimize since the composition of nonlinear parametrized functions results in a highly non-convex
+loss function.
+
+In this project, we plan to investigate the following issues regarding neural network optimization.
+
+\begin{enumerate}
+    \item \textbf{Error Surface of Neural Networks}. These are unfortunately rife with local minima
+    and saddle points. How often do they occur during neural network optimization, and how do they
+    fare relative to the true global minimum? What are the specific properties of neural networks
+    (e.g., number of layers, number of weights per layer, etc.) that most directly result in local
+    minima and saddle points? It is also known that in high dimensions, saddle points are more
+    common than local minima -- is there a way we can exploit that?
+
+    \item \textbf{Convex Relaxations}. Can we relax the neural network optimization problem into a
+    convex optimization problem? What types of neural network models have the most straightforward
+    convex relaxations?  If we can find convex relaxations, how do they impact performance in
+    practice? To our knowledge, there are two papers in the literature concerning convex neural
+    networks. Can we extend the results from those papers (or show why we cannot)?
+
+    \item \textbf{First-Order Gradient-Based Solvers}. These include Stochastic Gradient Descent and
+    its many variants from the literature. Our goal would be to develop a general recipe on choosing
+    solvers for specific types of neural networks (e.g., fully connected, convolutional, etc.).  To
+    relate this to item \#1 on this list, can we characterize how often these algorithms get trapped
+    in local minima, or how often they run into problems with saddle points? Also, how does this affect the solvers' performances?
+
+    \item \textbf{Second-Order Gradient-Based Solvers}. These include Quasi-Newton and its variants.
+    How do they bypass the Hessian matrix in a clever way? Are they seriously affected by saddle
+    points in neural networks? How much more expensive are they compared to first-order solvers,
+    and do their advantages justify the cost?  As in the first-order case, we will want a recipe for
+    choosing solvers, and we will also want to investigate if these algorithms get trapped in local
+    minima, and how that affects their performance.
+\end{enumerate}
+
+Based on our initial literature review, we will plan out a set of experiments that can make progress
+on answering our questions. Our experiments will range from toy neural networks on toy data up to
+reasonably large neural networks that might require the use of Berkeley's CAFFE
+software\footnote{\url{http://caffe.berkeleyvision.org/}}.
+
+\emph{By the project mid-point date of November 12}, our goal is to have a reasonably polished
+literature review written up to form the basis of our final report. Furthermore, we will strive to
+have results on some preliminary neural network experiments, and also to have a draft for future,
+more extensive experiments.
+
+\end{document}
