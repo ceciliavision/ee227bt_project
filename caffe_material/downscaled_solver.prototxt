@@ -23,11 +23,11 @@ power: 0.75
 display: 25
 
 # The maximum number of iterations
-max_iter: 200 # Daniel: this is what Anna did in her paper, right?
+max_iter: 1000 # Daniel: 200 is what Anna did in her paper, right? That's too low.
 
 # snapshot intermediate results
-snapshot: 2000
-snapshot_prefix: "ee227bt_project/caffe_material/results"
+snapshot: 100000
+snapshot_prefix: "ee227bt_project/caffe_output"
 
 # solver mode: CPU or GPU
 solver_mode: CPU # Daniel: really no need for the GPU here ...
