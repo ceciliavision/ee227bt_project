@@ -7,7 +7,7 @@ net: "ee227bt_project/caffe_material/downscaled_train_test.prototxt"
 test_iter: 100 
 
 # Carry out testing every 25 training iterations.
-test_interval: 25
+test_interval: 100
 
 # The base learning rate, momentum and the weight decay of the network.
 base_lr: 0.01 # Daniel: default is 0.01
@@ -20,14 +20,14 @@ gamma: 0.0001
 power: 0.75
 
 # Display every 100 iterations
-display: 25
+display: 100
 
 # The maximum number of iterations
-max_iter: 1000 # Daniel: 200 is what Anna did in her paper, right? That's too low.
+max_iter: 200 # Daniel: 200 is what Anna did in her paper, right? That's too low.
 
 # snapshot intermediate results
 snapshot: 100000
-snapshot_prefix: "ee227bt_project/caffe_output"
+snapshot_prefix: "ee227bt_project/caffe_output/"
 
 # solver mode: CPU or GPU
 solver_mode: CPU # Daniel: really no need for the GPU here ...
