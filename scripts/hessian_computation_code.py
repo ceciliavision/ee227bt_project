@@ -29,81 +29,102 @@ caffe.set_mode_gpu()
 from os import listdir
 
 
-def convert_to_vector(net, N):
+def compute_squared_l2(net):
     """
-    Given the current net (with weights), we concatenate the weights together
-    into an N-dimensional vector of shape (N,). This let us later call
-    np.linalg.norm(w) to get the L2 norm (which we then square).
+    Given a network, we'll return ||w||_2^2, made simpler with numpy since the
+    np.linalg.norm works on full matrices.
     """
-    weights1 = net.params['ip1'][0].data
-    weights2 = net.params['ip2'][0].data
-    bias1 = net.params['ip1'][1].data
-    bias2 = net.params['ip2'][1].data
-    w1 = np.reshape(weights1, (weights1.size,))
-    w2 = np.reshape(weights2, (weights2.size,))
-    w = np.concatenate((w1,w2,bias1,bias2))
-    assert w.size == N
-    return w
+    n_w1 = np.linalg.norm(net.params['ip1'][0].data)
+    n_w2 = np.linalg.norm(net.params['ip2'][0].data)
+    n_b1 = np.linalg.norm(net.params['ip1'][1].data)
+    n_b2 = np.linalg.norm(net.params['ip2'][1].data)
+    return n_w1*n_w1 + n_w2*n_w2 + n_b1*n_b1 + n_b2*n_b2
 
-def convert_to_params(w):
+def tweak_weights(net, index, eps):
     """
-    Given a weight vector w representing all the weights, we convert this back
-    to the four individual weight arrays that make up the net. Obviously, this
-    assumes we know the structure of the NN in advance! It returns four things.
-    NOTE: we assume that the concatenation of (w1, w2, bias1, bias2) = w.
+    Given a net, plus an index, we find the correct weight spot to increment by
+    eps (we are always *incrementing*, if it's decrementing, then we should have
+    changed the input to this function to negate it). This obviously assumes a
+    known structure to the network! This changes the internal state of the net
+    via its data arrays. If it's the first two cases, we have to find the correct
+    (row, col) combination to index into the weight vectors.
     """
-    w1 = w[:100*10]
-    w2 = w[100*10:100*10+10*10]
-    bias1 = w[100*10+10*10:100*10+10*10+10]
-    bias2 = w[100*10+10*10+10:]
-    weights1 = np.resize(w1, (10,100))
-    weights2 = np.resize(w2, (10,10))
-    assert bias1.shape == (10,)
-    assert bias2.shape == (10,)
-    return (weights1, weights2, bias1, bias2)
+    T1 = 10*100
+    T2 = 10*100 + 10*10
+    T3 = 10*100 + 10*10 + 10
+    if (index < T1): # 'index' is between 0 and 1000, inclusive
+        row = index / 100 # This is between 0 and 9
+        col = index % 100 # This is between 0 and 100
+        val = net.params['ip1'][0].data[row, col]
+        net.params['ip1'][0].data[row, col] = val + eps
+    elif (index < T2):
+        ind = index - T1 # Will be between 0 and 99, inclusive
+        row = ind / 10
+        col = ind % 10
+        val = net.params['ip2'][0].data[row, col]
+        net.params['ip2'][0].data[row, col] = val + eps
+    elif (index < T3):
+        ind = index - T2
+        val = net.params['ip1'][1].data[ind]
+        net.params['ip1'][1].data[ind] = val + eps
+    else:
+        ind = index - T3
+        val = net.params['ip2'][1].data[ind]
+        net.params['ip2'][1].data[ind] = val + eps
 
-def compute_loss(N, net, w, Napprox, images, labels):
+def compute_loss(net, x, y, epx, epy, Napprox, images, labels):
     """
-    Given a net which has NOT been overrided with vector w yet, we must compute
-    (approximate) the loss function. In other words, 'net' has the default weights
-    from the caffe model. We are modifying it to see how it changes the loss. This
-    is called from compute_hessian(...), which modifies w with epsilons.
+    Given a net which has NOT had weights changed (i.e., weights are straight
+    from the caffe model) we must approximate the loss function. The x and y are
+    indices of the weights that we have to increment or decrement by epsilon. We
+    add w[x] by epx and w[y] by epy, which may be negative from external calls.
     """
-    indices = random.sample(range(0,N), Napprox)
+    # We will only use a random subset of the 60000 total images.
+    indices = random.sample(range(0,60000), Napprox)
     subset_images = images[indices]
-    subset_labels = labels[indices]
-    total = 0.0
-    # TODO compute sum of losses, should probably vectorize
-    total = total / float(Napprox) # Don't forget that we are averaging!
-    # TODO add the regularization term
-    return 0.0
+    subset_labels = [int(x) for x in labels[indices]]
+
+    # Change weights for this net, then get predictions. Deal with x, then y:
+    tweak_weights(net, x, epx)
+    tweak_weights(net, y, epy)
+    predictions = net.predict(subset_images)
+    reg = compute_squared_l2(net)  # Don't forget!
+
+    # Predictions done, so make the weight vectors back to their original values
+    tweak_weights(net, x, -epx)
+    tweak_weights(net, y, -epy)
+
+    # Compute the losses from the predictions. Hopefully this is fast indexing.
+    total = sum(-np.log(predictions[np.arange(Napprox),subset_labels]))
+    total /= float(Napprox) # Don't forget to average
+    total += reg # Add regularizaton (TODO I'm assuming \lambda=1)
+    return total
 
 def compute_hessian(N, net, Napprox, images, labels):
     """
     Computes the Hessian (an NxN numpy 2-D array) of the current net. Because
     this can be expensive, we average over Napprox elements, rather than the
-    full N training elements.
+    full 60000 training elements. Our loss function is "compute_loss(...)".
+    
+    Here, N=1120. The first 10*100 are for ip1 weights. The next 10*10 are for
+    the ip2 weights. Then the last 20 are for the bias1 and bias2 in that order.
     """
     hessian = np.zeros((N,N))
-    ep1 = 0.00001
-    ep2 = 0.00001
-    w = convert_to_vector(net, N)
+    ep = 0.00001
 
+    # Now iterate; 'x' and 'y' indicate indices of the weights that we increment/decrement by epsilon
     for x in range(N):
+        #if (x % 100 == 0):
+        print "Done with {} out of {} for Hessian.".format(x,N)
         for y in range(x, N):
-
-            # Form the eps vectors, which we add/subtract to the weight vector.
-            ex = np.zeros((N,))
-            ex[x] = ep1
-            ey = np.zeros((N,))
-            ey[y] = ep2
-
             # Compute f_xy \approx (L(w1) - L(w2) - L(w3) + L(w4))/(4*ep1*ep2)
-            Loss1 = compute_loss(N, net, w + ex + ey, Napprox, images, labels)
-            Loss2 = compute_loss(N, net, w - ex + ey, Napprox, images, labels)
-            Loss3 = compute_loss(N, net, w + ex - ey, Napprox, images, labels)
-            Loss4 = compute_loss(N, net, w - ex - ey, Napprox, images, labels)
-            val = (Loss1 - Loss2 - Loss3 + Loss4) / (4.0*ep1*ep2)
+            Loss1 = compute_loss(net, x, y,  ep,  ep, Napprox, images, labels)
+            Loss2 = compute_loss(net, x, y, -ep,  ep, Napprox, images, labels)
+            Loss3 = Loss2
+            if (x != y): # Save time if x==y
+                Loss3 = compute_loss(net, x, y, ep, -ep, Napprox, images, labels)
+            Loss4 = compute_loss(net, x, y, -ep, -ep, Napprox, images, labels)
+            val = (Loss1 - Loss2 - Loss3 + Loss4) / (4.0*ep*ep)
             hessian[x,y] = val
             hessian[y,x] = val # Note: the above should work fine with x=y
 
@@ -114,27 +135,32 @@ def compute_hessian(N, net, Napprox, images, labels):
 # MAIN #
 ########
 
-# First, download the deployment and net files, and prepare images.
+# First, download the deployment and net files, and also get images.
 # We can get predictions ((N x 10)-dimensional) by calling net.predict(IMAGES).
 DEPLOYMENT_FILE = "downscaled_deployment.prototxt"
 PRETRAINED_FILE = "caffe_output/_iter_1000.caffemodel"
-net = caffe.Classifier(model_file = DEPLOYMENT_FILE,
-                       pretrained_file = PRETRAINED_FILE)
+net = caffe.Classifier(model_file = DEPLOYMENT_FILE, pretrained_file = PRETRAINED_FILE)
 IMAGES = np.load('downscaled_60000_images.npy')
 labels = np.loadtxt('mnist_labels_train.txt')
 print "Done loading images and labels. len(IMAGES) = {}, len(labels) = {}".format(len(IMAGES), len(labels))
 
 # A debugging message to clarify that the number of weights is 1000+100+10+10=1120.
 # We'll obviously need to generalize if we extend this to other types of networks
-print "Here are the net.params:"
+print "Just as a sanity check, here are the net.params:"
 print [(k, v[0].data.shape) for k, v in net.params.items()]
 print [(k, v[1].data.shape) for k, v in net.params.items()]
 
 # Now compute the Hessian, then check eigenvalues.
-# We'll be lame and input 1120, but we'll change later for generalization.
+# We'll be lame and input 1120 directly, but we'll change later for generalization.
 approx = 100
-hess = compute_hessian(1120, net, approx, IMAGES, labels)
+N = 1120
+print "Now computing the Hessian ..."
+hess = compute_hessian(N, net, approx, IMAGES, labels)
+print "Hessian computation done. Here it is:"
+print hess
+print "Now computing eigenvalues ..."
 (eigvals,eigvecs) = np.linalg.eig(hess)
+np.savetxt('eigenvalues.txt', eigvals)
 negeigs = eigvals[eigvals < 0] # We might consider using 0.001 like in the paper
 print "Out of {}, there are {} negative eigenvalues".format(len(eigvals), len(negeigs))
 
