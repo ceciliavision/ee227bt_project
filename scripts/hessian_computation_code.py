@@ -29,17 +29,6 @@ caffe.set_mode_gpu()
 from os import listdir
 
 
-def compute_squared_l2(net):
-    """
-    Given a network, we'll return ||w||_2^2, made simpler with numpy since the
-    np.linalg.norm works on full matrices.
-    """
-    n_w1 = np.linalg.norm(net.params['ip1'][0].data)
-    n_w2 = np.linalg.norm(net.params['ip2'][0].data)
-    n_b1 = np.linalg.norm(net.params['ip1'][1].data)
-    n_b2 = np.linalg.norm(net.params['ip2'][1].data)
-    return n_w1*n_w1 + n_w2*n_w2 + n_b1*n_b1 + n_b2*n_b2
-
 def tweak_weights(net, index, eps):
     """
     Given a net, plus an index, we find the correct weight spot to increment by
@@ -72,39 +61,32 @@ def tweak_weights(net, index, eps):
         val = net.params['ip2'][1].data[ind]
         net.params['ip2'][1].data[ind] = val + eps
 
-def compute_loss(net, x, y, epx, epy, Napprox, images, labels):
+def compute_loss(net, x, y, epx, epy, images, labels):
     """
     Given a net which has NOT had weights changed (i.e., weights are straight
     from the caffe model) we must approximate the loss function. The x and y are
     indices of the weights that we have to increment or decrement by epsilon. We
     add w[x] by epx and w[y] by epy, which may be negative from external calls.
     """
-    # We will only use a random subset of the 60000 total images.
-    indices = random.sample(range(0,60000), Napprox)
-    subset_images = images[indices]
-    subset_labels = [int(x) for x in labels[indices]]
-
     # Change weights for this net, then get predictions. Deal with x, then y:
     tweak_weights(net, x, epx)
     tweak_weights(net, y, epy)
-    predictions = net.predict(subset_images)
-    reg = 0.0005*compute_squared_l2(net)  # Don't forget!
+    predictions = net.predict(images)
 
     # Predictions done, so make the weight vectors back to their original values
     tweak_weights(net, x, -epx)
     tweak_weights(net, y, -epy)
 
-    # Compute the losses from the predictions. Hopefully this is fast indexing.
-    total = sum(-np.log(predictions[np.arange(Napprox),subset_labels]))
-    total /= float(Napprox) # Don't forget to average
-    total += reg # Add regularizaton (TODO I'm assuming \lambda=1)
+    # Compute the AVERAGE losses from the predictions. Hopefully this indexing is fast.
+    total = sum(-np.log(predictions[np.arange(len(images)),labels]))
+    total /= float(len(images))
     return total
 
-def compute_hessian(N, net, Napprox, images, labels):
+def compute_hessian(N, net, images, labels):
     """
     Computes the Hessian (an NxN numpy 2-D array) of the current net. Because
-    this can be expensive, we average over Napprox elements, rather than the
-    full 60000 training elements. Our loss function is "compute_loss(...)".
+    this is very expensive, 'images' and 'labels' are actually a subset of the
+    60000 training images. Our loss function is "compute_loss(...)".
     
     Here, N=1120. The first 10*100 are for ip1 weights. The next 10*10 are for
     the ip2 weights. Then the last 20 are for the bias1 and bias2 in that order.
@@ -114,21 +96,21 @@ def compute_hessian(N, net, Napprox, images, labels):
 
     # Now iterate; 'x' and 'y' indicate indices of the weights that we increment/decrement by epsilon
     for x in range(N):
-        #if (x % 100 == 0):
         print "Done with {} out of {} for Hessian.".format(x,N)
         for y in range(x, N):
             # Compute f_xy \approx (L(w1) - L(w2) - L(w3) + L(w4))/(4*ep1*ep2)
-            Loss1 = compute_loss(net, x, y,  ep,  ep, Napprox, images, labels)
-            Loss2 = compute_loss(net, x, y, -ep,  ep, Napprox, images, labels)
+            Loss1 = compute_loss(net, x, y,  ep,  ep, images, labels)
+            Loss2 = compute_loss(net, x, y, -ep,  ep, images, labels)
             Loss3 = Loss2
             if (x != y): # Save time if x==y
-                Loss3 = compute_loss(net, x, y, ep, -ep, Napprox, images, labels)
-            Loss4 = compute_loss(net, x, y, -ep, -ep, Napprox, images, labels)
+                Loss3 = compute_loss(net, x, y, ep, -ep, images, labels)
+            Loss4 = compute_loss(net, x, y, -ep, -ep, images, labels)
             val = (Loss1 - Loss2 - Loss3 + Loss4) / (4.0*ep*ep)
             hessian[x,y] = val
             hessian[y,x] = val # Note: the above should work fine with x=y
 
-    hessian = (hessian + hessian.T)/2.0 # For enforcing better symmetry
+    hessian = (hessian + hessian.T)/2.0    # For enforcing better symmetry
+    hessian = hessian + 2*0.0005*np.eye(N) # Add regularization at end; 0.0005 = \lambda.
     return hessian
 
 ########
@@ -150,12 +132,15 @@ print "Just as a sanity check, here are the net.params:"
 print [(k, v[0].data.shape) for k, v in net.params.items()]
 print [(k, v[1].data.shape) for k, v in net.params.items()]
 
-# Now compute the Hessian, then check eigenvalues.
-# We'll be lame and input 1120 directly, but we'll change later for generalization.
-approx = 100
+# First, subsample the data ahead of time, picking 100 unique images (so we approximate).
+indices = random.sample(range(0,60000), 100)
+subset_images = IMAGES[indices]
+subset_labels = [int(x) for x in labels[indices]]
+
+# Compute the Hessian and check eigenvalues. We're lame and will put 1120 directly.
 N = 1120
 print "Now computing the Hessian ..."
-hess = compute_hessian(N, net, approx, IMAGES, labels)
+hess = compute_hessian(N, net, subset_images, subset_labels)
 np.save('hess.npy', hess)
 print "Hessian computation done. Now computing eigenvalues ..."
 (eigvals,eigvecs) = np.linalg.eig(hess)
