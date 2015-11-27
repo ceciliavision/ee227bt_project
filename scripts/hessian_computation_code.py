@@ -88,7 +88,7 @@ def compute_loss(net, x, y, epx, epy, Napprox, images, labels):
     tweak_weights(net, x, epx)
     tweak_weights(net, y, epy)
     predictions = net.predict(subset_images)
-    reg = compute_squared_l2(net)  # Don't forget!
+    reg = 0.0005*compute_squared_l2(net)  # Don't forget!
 
     # Predictions done, so make the weight vectors back to their original values
     tweak_weights(net, x, -epx)
@@ -156,9 +156,8 @@ approx = 100
 N = 1120
 print "Now computing the Hessian ..."
 hess = compute_hessian(N, net, approx, IMAGES, labels)
-print "Hessian computation done. Here it is:"
-print hess
-print "Now computing eigenvalues ..."
+np.save('hess.npy', hess)
+print "Hessian computation done. Now computing eigenvalues ..."
 (eigvals,eigvecs) = np.linalg.eig(hess)
 np.savetxt('eigenvalues.txt', eigvals)
 negeigs = eigvals[eigvals < 0] # We might consider using 0.001 like in the paper
